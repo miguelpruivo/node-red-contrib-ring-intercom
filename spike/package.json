@@ -1,0 +1,9 @@
+{
+  "name": "ring-intercom-video-spike",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway script to test whether Ring's backend allows a live-view session for an Intercom Video device. Not part of the eventual node-red-contrib-ring-intercom package.",
+  "dependencies": {
+    "ring-client-api": "^14.3.0"
+  }
+}
