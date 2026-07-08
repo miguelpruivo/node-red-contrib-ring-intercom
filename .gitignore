@@ -1,0 +1,4 @@
+node_modules/
+*.log
+spike/.token
+test/.token

@@ -1,0 +1,34 @@
+<script type="text/javascript">
+  RED.nodes.registerType('ring-account', {
+    category: 'config',
+    defaults: {
+      name: { value: '' },
+    },
+    credentials: {
+      refreshToken: { type: 'password' },
+    },
+    label: function () {
+      return this.name || 'ring-account';
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="ring-account">
+  <div class="form-row">
+    <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-config-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-refreshToken"><i class="fa fa-key"></i> Refresh Token</label>
+    <input type="password" id="node-config-input-refreshToken" placeholder="Ring refresh token">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="ring-account">
+  <p>Holds a Ring refresh token and creates a shared client for ring-intercom nodes.</p>
+  <p>Generate a refresh token once via <code>npx -p ring-client-api ring-auth-cli</code>
+     and paste it above. The token rotates automatically after that; the rotated
+     value is persisted to disk, so you only need to paste it once.</p>
+  <p>Check the Node-RED debug log after deploying -- this node logs the intercoms
+     it finds on your account along with their device IDs.</p>
+</script>

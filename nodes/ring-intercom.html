@@ -1,0 +1,45 @@
+<script type="text/javascript">
+  RED.nodes.registerType('ring-intercom', {
+    category: 'home automation',
+    color: '#3FADB5',
+    defaults: {
+      name: { value: '' },
+      account: { value: '', type: 'ring-account', required: true },
+      deviceId: { value: '', required: true },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'font-awesome/fa-bell',
+    label: function () {
+      return this.name || 'ring-intercom';
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="ring-intercom">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-account"><i class="fa fa-user"></i> Account</label>
+    <input type="text" id="node-input-account">
+  </div>
+  <div class="form-row">
+    <label for="node-input-deviceId"><i class="fa fa-video-camera"></i> Device ID</label>
+    <input type="text" id="node-input-deviceId" placeholder="Ring intercom device id">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="ring-intercom">
+  <p>Wires one Ring Intercom device to Node-RED / NRCHKB.</p>
+  <p><b>Input</b>: <code>{ payload: { LockTargetState: 0 } }</code> triggers
+     unlock -- this is exactly NRCHKB's Lock Mechanism node's own output shape,
+     so you can wire it directly.</p>
+  <p><b>Output</b>: <code>{ payload: { LockCurrentState } }</code>
+     (<code>msg.event: 'lock'</code>) on unlock (from this node or the Ring app),
+     and <code>{ payload: { ProgrammableSwitchEvent: 0 } }</code>
+     (<code>msg.event: 'ding'</code>) when the intercom is rung.</p>
+  <p>Find the Device ID in the Node-RED debug log after deploying the
+     ring-account node -- it logs every intercom it finds.</p>
+</script>
