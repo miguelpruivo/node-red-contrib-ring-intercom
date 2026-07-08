@@ -34,7 +34,10 @@ module.exports = function (RED) {
         }
 
         intercom.subscribeToDingEvents();
+        node.log(`Subscribed to ding events for ${intercom.name} (id: ${intercom.id})`);
+
         const dingSub = intercom.onDing.subscribe(() => {
+          node.log(`DING received for ${intercom.name}`);
           node.send(buildDingMessage());
         });
         unsubscribeDing = () => dingSub.unsubscribe();
@@ -45,6 +48,7 @@ module.exports = function (RED) {
         // same push subsystem that logs PHONE_REGISTRATION_ERROR), so it's not
         // a dependable signal for a command we just issued ourselves.
         const unlockedSub = intercom.onUnlocked.subscribe(() => {
+          node.log(`onUnlocked fired for ${intercom.name}`);
           emitUnlockedThenResecure();
         });
         unsubscribeUnlocked = () => unlockedSub.unsubscribe();
