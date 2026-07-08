@@ -1,9 +1,12 @@
 'use strict';
 
 module.exports = function (RED) {
+  const { RingCamera } = require('ring-client-api');
   const { isUnlockCommand, buildLockStateMessage, buildDingMessage, LOCK_STATE } = require('../lib/ring-messages');
+  const { findNewDings } = require('../lib/ring-events');
 
   const RESECURE_DELAY_MS = 5000;
+  const DING_POLL_INTERVAL_MS = 15000;
 
   function RingIntercomNode(config) {
     RED.nodes.createNode(this, config);
@@ -22,8 +25,29 @@ module.exports = function (RED) {
       }, RESECURE_DELAY_MS);
     }
 
-    let unsubscribeDing = null;
     let unsubscribeUnlocked = null;
+    let dingPollTimer = null;
+    let lastSeenDingEventId = null;
+
+    function startDingPolling(intercom) {
+      dingPollTimer = setInterval(async () => {
+        try {
+          // RingCamera.getEvents() is a generic REST call keyed off
+          // this.id/this.data.location_id/this.restClient, all present on a
+          // real RingIntercom instance -- no patching needed, unlike the
+          // earlier video-streaming spike.
+          const { events } = await RingCamera.prototype.getEvents.call(intercom, {});
+          const { newDings, latestEventId } = findNewDings(events, lastSeenDingEventId);
+          lastSeenDingEventId = latestEventId;
+          for (const ding of newDings) {
+            node.log(`DING received for ${intercom.name} (event ${ding.event_id}, ${ding.created_at})`);
+            node.send(buildDingMessage());
+          }
+        } catch (err) {
+          node.warn(`Failed to poll Ring events: ${err.message}`);
+        }
+      }, DING_POLL_INTERVAL_MS);
+    }
 
     node.intercomReady = account
       .getIntercom(config.deviceId)
@@ -33,14 +57,15 @@ module.exports = function (RED) {
           return null;
         }
 
-        intercom.subscribeToDingEvents();
-        node.log(`Subscribed to ding events for ${intercom.name} (id: ${intercom.id})`);
-
-        const dingSub = intercom.onDing.subscribe(() => {
-          node.log(`DING received for ${intercom.name}`);
-          node.send(buildDingMessage());
-        });
-        unsubscribeDing = () => dingSub.unsubscribe();
+        // Ding detection polls Ring's event-history REST endpoint instead of
+        // using push notifications (onDing/subscribeToDingEvents()): push
+        // never fired across multiple real button presses in live testing
+        // (same subsystem that logs PHONE_REGISTRATION_ERROR), while polling
+        // getEvents() reliably showed the ding immediately after it happened.
+        startDingPolling(intercom);
+        node.log(
+          `Polling Ring events for ${intercom.name} (id: ${intercom.id}) every ${DING_POLL_INTERVAL_MS / 1000}s`,
+        );
 
         // Best-effort: catches unlocks triggered from elsewhere (e.g. the Ring
         // app). Not relied on for our own unlock() calls below -- onUnlocked is
@@ -80,8 +105,8 @@ module.exports = function (RED) {
     });
 
     node.on('close', (done) => {
-      if (unsubscribeDing) {
-        unsubscribeDing();
+      if (dingPollTimer) {
+        clearInterval(dingPollTimer);
       }
       if (unsubscribeUnlocked) {
         unsubscribeUnlocked();
