@@ -15,6 +15,13 @@ module.exports = function (RED) {
       return;
     }
 
+    function emitUnlockedThenResecure() {
+      node.send(buildLockStateMessage(LOCK_STATE.UNSECURED));
+      setTimeout(() => {
+        node.send(buildLockStateMessage(LOCK_STATE.SECURED));
+      }, RESECURE_DELAY_MS);
+    }
+
     let unsubscribeDing = null;
     let unsubscribeUnlocked = null;
 
@@ -32,11 +39,13 @@ module.exports = function (RED) {
         });
         unsubscribeDing = () => dingSub.unsubscribe();
 
+        // Best-effort: catches unlocks triggered from elsewhere (e.g. the Ring
+        // app). Not relied on for our own unlock() calls below -- onUnlocked is
+        // push-notification-driven and can be silently delayed/dropped (the
+        // same push subsystem that logs PHONE_REGISTRATION_ERROR), so it's not
+        // a dependable signal for a command we just issued ourselves.
         const unlockedSub = intercom.onUnlocked.subscribe(() => {
-          node.send(buildLockStateMessage(LOCK_STATE.UNSECURED));
-          setTimeout(() => {
-            node.send(buildLockStateMessage(LOCK_STATE.SECURED));
-          }, RESECURE_DELAY_MS);
+          emitUnlockedThenResecure();
         });
         unsubscribeUnlocked = () => unlockedSub.unsubscribe();
 
@@ -56,6 +65,7 @@ module.exports = function (RED) {
       if (isUnlockCommand(msg)) {
         try {
           await intercom.unlock();
+          emitUnlockedThenResecure();
           done();
         } catch (err) {
           done(err);
