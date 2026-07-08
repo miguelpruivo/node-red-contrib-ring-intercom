@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { findNewDings } = require('../lib/ring-events');
+const { findNewDings, filterDingsMissedByPush } = require('../lib/ring-events');
 
 const events = [
   { event_id: '3', event_type: 'ding', created_at: '2026-07-07T15:00:00Z' },
@@ -53,4 +53,25 @@ test('handles an empty events list', () => {
   const result = findNewDings([], null);
   assert.deepStrictEqual(result.newDings, []);
   assert.strictEqual(result.latestEventId, null);
+});
+
+test('filterDingsMissedByPush suppresses a ding already delivered by push', () => {
+  const dingTime = new Date('2026-07-07T15:00:00Z').getTime();
+  const dings = [{ event_id: '3', event_type: 'ding', created_at: '2026-07-07T15:00:00Z' }];
+  // Push fired 4 seconds after the event was created (typical delivery skew).
+  assert.deepStrictEqual(filterDingsMissedByPush(dings, [dingTime + 4000]), []);
+});
+
+test('filterDingsMissedByPush reports a ding push never delivered', () => {
+  const dings = [{ event_id: '3', event_type: 'ding', created_at: '2026-07-07T15:00:00Z' }];
+  const unrelatedPush = new Date('2026-07-07T14:00:00Z').getTime();
+  assert.deepStrictEqual(filterDingsMissedByPush(dings, [unrelatedPush]), dings);
+});
+
+test('filterDingsMissedByPush reports everything when no push dings were seen', () => {
+  const dings = [
+    { event_id: '2', event_type: 'ding', created_at: '2026-07-07T14:00:00Z' },
+    { event_id: '3', event_type: 'ding', created_at: '2026-07-07T15:00:00Z' },
+  ];
+  assert.deepStrictEqual(filterDingsMissedByPush(dings, []), dings);
 });

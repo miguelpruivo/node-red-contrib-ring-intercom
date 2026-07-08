@@ -40,6 +40,10 @@
      (<code>msg.event: 'lock'</code>) on unlock (from this node or the Ring app),
      and <code>{ payload: { ProgrammableSwitchEvent: 0 } }</code>
      (<code>msg.event: 'ding'</code>) when the intercom is rung.</p>
+  <p>Dings arrive <b>in realtime</b> over Ring's push channel. A 15s
+     event-history watchdog runs behind it purely as a safety net: if push ever
+     drops a ding it is still delivered (late) and a warning is logged so you
+     know push needs attention.</p>
   <p>Find the Device ID in the Node-RED debug log after deploying the
      ring-account node -- it logs every intercom it finds.</p>
 </script>

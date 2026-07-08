@@ -3,6 +3,7 @@
     category: 'config',
     defaults: {
       name: { value: '' },
+      verbose: { value: false },
     },
     credentials: {
       refreshToken: { type: 'password' },
@@ -22,13 +23,28 @@
     <label for="node-config-input-refreshToken"><i class="fa fa-key"></i> Refresh Token</label>
     <input type="password" id="node-config-input-refreshToken" placeholder="Ring refresh token">
   </div>
+  <div class="form-row">
+    <label for="node-config-input-verbose" style="width: auto;">
+      <input type="checkbox" id="node-config-input-verbose" style="display: inline-block; width: auto; vertical-align: baseline;">
+      Verbose Ring logging (troubleshooting)
+    </label>
+  </div>
 </script>
 
 <script type="text/html" data-help-name="ring-account">
   <p>Holds a Ring refresh token and creates a shared client for ring-intercom nodes.</p>
-  <p>Generate a refresh token once via <code>npx -p ring-client-api ring-auth-cli</code>
-     and paste it above. The token rotates automatically after that; the rotated
-     value is persisted to disk, so you only need to paste it once.</p>
-  <p>Check the Node-RED debug log after deploying -- this node logs the intercoms
+  <p>Generate a <b>dedicated</b> refresh token once via
+     <code>npx -p ring-client-api ring-auth-cli</code> and paste it above. Do not
+     reuse a token from another install (e.g. homebridge-ring) -- each install
+     needs its own token, or they will invalidate each other's sessions and fight
+     over the realtime push registration. The token rotates automatically after
+     that; the rotated value is persisted to disk, so you only need to paste it
+     once. Pasting a different token later replaces the persisted one.</p>
+  <p>Realtime ding events arrive over Ring's push notification channel (FCM).
+     Enable <b>Verbose Ring logging</b> to surface the push subsystem's own
+     diagnostics (e.g. <code>PHONE_REGISTRATION_ERROR</code>, blocked
+     <code>mtalk.google.com:5228</code>) in the Node-RED log when dings are not
+     arriving in realtime.</p>
+  <p>Check the Node-RED log after deploying -- this node logs the intercoms
      it finds on your account along with their device IDs.</p>
 </script>

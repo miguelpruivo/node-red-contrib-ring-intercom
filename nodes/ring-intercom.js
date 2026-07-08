@@ -3,10 +3,14 @@
 module.exports = function (RED) {
   const { RingCamera } = require('ring-client-api');
   const { isUnlockCommand, buildLockStateMessage, buildDingMessage, LOCK_STATE } = require('../lib/ring-messages');
-  const { findNewDings } = require('../lib/ring-events');
+  const { findNewDings, filterDingsMissedByPush } = require('../lib/ring-events');
 
   const RESECURE_DELAY_MS = 5000;
-  const DING_POLL_INTERVAL_MS = 15000;
+  // Watchdog only: dings are delivered realtime via push (onDing). This poll
+  // of Ring's event-history REST endpoint exists solely to catch anything
+  // push drops, so a ding is delayed at most one interval instead of lost.
+  const WATCHDOG_POLL_INTERVAL_MS = 15000;
+  const PUSH_DING_RETENTION_MS = 5 * 60 * 1000;
 
   function RingIntercomNode(config) {
     RED.nodes.createNode(this, config);
@@ -25,28 +29,34 @@ module.exports = function (RED) {
       }, RESECURE_DELAY_MS);
     }
 
+    let unsubscribeDing = null;
     let unsubscribeUnlocked = null;
-    let dingPollTimer = null;
+    let watchdogTimer = null;
     let lastSeenDingEventId = null;
+    let pushDingTimes = [];
 
-    function startDingPolling(intercom) {
-      dingPollTimer = setInterval(async () => {
+    function startDingWatchdog(intercom) {
+      watchdogTimer = setInterval(async () => {
         try {
           // RingCamera.getEvents() is a generic REST call keyed off
           // this.id/this.data.location_id/this.restClient, all present on a
-          // real RingIntercom instance -- no patching needed, unlike the
-          // earlier video-streaming spike.
+          // real RingIntercom instance -- no patching needed.
           const { events } = await RingCamera.prototype.getEvents.call(intercom, {});
           const { newDings, latestEventId } = findNewDings(events, lastSeenDingEventId);
           lastSeenDingEventId = latestEventId;
-          for (const ding of newDings) {
-            node.log(`DING received for ${intercom.name} (event ${ding.event_id}, ${ding.created_at})`);
+          const missedDings = filterDingsMissedByPush(newDings, pushDingTimes);
+          for (const ding of missedDings) {
+            node.warn(
+              `Realtime push missed a ding on ${intercom.name} (event ${ding.event_id}, ${ding.created_at}); ` +
+                'delivered via fallback polling instead. Push is not healthy -- see the Troubleshooting section of the README.',
+            );
+            node.status({ fill: 'yellow', shape: 'dot', text: 'ding via fallback -- push unhealthy' });
             node.send(buildDingMessage());
           }
         } catch (err) {
-          node.warn(`Failed to poll Ring events: ${err.message}`);
+          node.warn(`Ding watchdog poll failed: ${err.message}`);
         }
-      }, DING_POLL_INTERVAL_MS);
+      }, WATCHDOG_POLL_INTERVAL_MS);
     }
 
     node.intercomReady = account
@@ -57,21 +67,33 @@ module.exports = function (RED) {
           return null;
         }
 
-        // Ding detection polls Ring's event-history REST endpoint instead of
-        // using push notifications (onDing/subscribeToDingEvents()): push
-        // never fired across multiple real button presses in live testing
-        // (same subsystem that logs PHONE_REGISTRATION_ERROR), while polling
-        // getEvents() reliably showed the ding immediately after it happened.
-        startDingPolling(intercom);
+        // Realtime path: Ring pushes an IntercomDing notification over FCM to
+        // the account's shared push receiver the moment the button is pressed.
+        // (The RingIntercom constructor auto-subscribes only when the device
+        // reports itself unsubscribed; this explicit call re-asserts the
+        // server-side subscription on every deploy, and is idempotent.)
+        intercom.subscribeToDingEvents().catch((err) => {
+          node.warn(`Failed to subscribe to ding events: ${err.message}`);
+        });
+        const dingSub = intercom.onDing.subscribe(() => {
+          const now = Date.now();
+          pushDingTimes = [...pushDingTimes.filter((t) => now - t < PUSH_DING_RETENTION_MS), now];
+          node.log(`DING received (realtime push) for ${intercom.name}`);
+          node.status({ fill: 'blue', shape: 'dot', text: `ding ${new Date(now).toLocaleTimeString()}` });
+          node.send(buildDingMessage());
+        });
+        unsubscribeDing = () => dingSub.unsubscribe();
+
+        startDingWatchdog(intercom);
+        node.status({ fill: 'green', shape: 'dot', text: 'listening (push + watchdog)' });
         node.log(
-          `Polling Ring events for ${intercom.name} (id: ${intercom.id}) every ${DING_POLL_INTERVAL_MS / 1000}s`,
+          `Listening for realtime ding push events on ${intercom.name} (id: ${intercom.id}), ` +
+            `with a ${WATCHDOG_POLL_INTERVAL_MS / 1000}s event-history watchdog as fallback`,
         );
 
         // Best-effort: catches unlocks triggered from elsewhere (e.g. the Ring
-        // app). Not relied on for our own unlock() calls below -- onUnlocked is
-        // push-notification-driven and can be silently delayed/dropped (the
-        // same push subsystem that logs PHONE_REGISTRATION_ERROR), so it's not
-        // a dependable signal for a command we just issued ourselves.
+        // app). Not relied on for our own unlock() calls below -- we emit lock
+        // state ourselves on unlock() so feedback never depends on push.
         const unlockedSub = intercom.onUnlocked.subscribe(() => {
           node.log(`onUnlocked fired for ${intercom.name}`);
           emitUnlockedThenResecure();
@@ -105,8 +127,11 @@ module.exports = function (RED) {
     });
 
     node.on('close', (done) => {
-      if (dingPollTimer) {
-        clearInterval(dingPollTimer);
+      if (watchdogTimer) {
+        clearInterval(watchdogTimer);
+      }
+      if (unsubscribeDing) {
+        unsubscribeDing();
       }
       if (unsubscribeUnlocked) {
         unsubscribeUnlocked();
